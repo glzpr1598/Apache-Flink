@@ -663,9 +663,7 @@ Iterator<Tuple2<String, Integer>> myOutput = DataStreamUtils.collect(myResult)
 - Event time: 생산 장치로부터 이벤트가 발생하는 시간
 - Ingestion time: 이벤트가 Flink로 들어가는 시간
 
-
-
-##### Setting a Time Characteristic
+**Setting a Time Characteristic**
 
 ```java
 final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -688,11 +686,35 @@ stream
 
 ##### Event Time and Watermarks
 
-##### Watermarks in Parallel Streams
 
-##### Late Elements
 
-##### Debugging Watermarks
+## Table API & SQL
+
+### Overview
+
+### Concepts & Common API
+
+### Streaming Concepts
+
+### Connect to External Systems
+
+### Table API
+
+### SQL
+
+### User-defined Sources & Sinks
+
+User-defined Functions
+
+### User-defined Functions
+
+SQL Client
+
+### SQL Client
+
+
+
+
 
 
 
@@ -715,7 +737,7 @@ CEP dependency 추가
 ```
 
 패턴 매칭을 적용하려는 DataStream의 이벤트는 `equals()`와 `hashCode()` 메서드를 구현해야한다.
-왜냐하면 CEP는 이벤트를 비교하고 매칭하기위해 이 메서드를 사용하기 때문이다.
+왜냐하면 CEP는 이벤트를 비교하고 매칭하기위해 그것을 사용하기 때문이다.
 
 ```java
 DataStream<Event> input = ...
@@ -757,18 +779,16 @@ DataStream<Alert> result = patternStream.select(
 
 
 
-### The Pattern API
+#### The Pattern API
 
 Pattern API를 사용하면 입력 스트림에서 추출하려는 복잡한 패턴 시퀀스를 정의할 수 있다.
 
-복잡한 패턴 시퀀스는 여러개의 단순 패턴으로 구성된다.
-단순 패턴은 **patterns**라 부르고, 스트림에서 찾는 복잡한 패턴 시퀀스는 **pattern sequence**라 부른다.
-**match**는 모든 패턴을 방문하는 입력 이벤트의 시퀀스이다.
+- pattern: 동일한 속성을 가진 요소를 검사
 
-- 패턴은 고유한 이름을 가져야한다.
-- 패턴이름에 ":"을 쓰면 안된다.
+- pattern sequece: 패턴의 전환이 발생하는 연속적인 패턴
+- match: 모든 패턴 시퀀스를 통과하는 것, 모든 조건을 충족하는 것
 
-#### Individual Patterns
+##### Individual Patterns
 
 패턴은 singleton 패턴, looping 패턴이 있다.
 
@@ -846,6 +866,7 @@ condition은 `pattern.where()`, `pattern.or()`, `pattern.until()` 메서드를 �
 아래 예제는 이름이 "foo"로 시작하고, 이전에 허용된 이벤트 가격과 현재 이벤트 가격의 합이 5.0을 넘지 않는 iterative condition이다. Iterative condition은 루핑 패턴과 조합되었을 때 효과적이다.
 
 ```java
+// middle은 pattern
 middle.oneOrMore()
     .subtype(SubEvent.class)
     .where(new IterativeCondition<SubEvent>() {
@@ -910,43 +931,172 @@ pattern.where(new SimpleCondition<Event>() {
 
 {a1 a2 a3}, {a2 a3} 은 stop condition으로 인해 반환되지 않는다.
 
-| 패턴 연산자 | 설명 |
-| ----------- | ---- |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
-|             |      |
+
+
+| 패턴 연산자                     | 설명                                                         |
+| ------------------------------- | ------------------------------------------------------------ |
+| **where(condition)**            | 현재 패턴의 조건(condition) 지정. 조건을 만족해야 이벤트가 패턴과 매칭 가능 |
+| **or(condition)**               | OR 조건 추가                                                 |
+| **until(condition)**            | Looping 패턴의 중단 조건 지정. `onOrMore()` 메서드 뒤에만 사용 가능 |
+| **subtype(subClass)**           | 현재 패턴에 대한 subClass 지정                               |
+| **oneOrMore()**                 | 패턴이 적어도 하나 일치하는 이벤트를 발생                    |
+| **timesOrMore(#times)**         | 패턴이 적어도 하나 일치하는 #개의 이벤트를 발생              |
+| **times(#ofTimes)**             | 패턴이 일치하는 #개의 이벤트를 발생                          |
+| **times(#fromTimes, #toTimes)** | 패턴이 일치하는 #fromTimes ~ #toTimes개의 이벤트를 발생      |
+| **optional()**                  | 패턴이 발생 할 수도 있고 안할 수도 있음                      |
+| **greedy()**                    | 최대한 많이 발생                                             |
 
 
 
-#### Combining Patterns
+##### Combining Patterns
+
+Individual 패턴을 조합하여 패턴 sequence를 만들 수 있다.
+
+패턴 시퀀스는 다음과 같이 시작한다.
+
+```java
+Pattern<Event, ?> start = Pattern.<Event>begin("start");
+```
+
+패턴을 조합하기 위해 패턴 사이에 contiguity condition을 넣어야 한다.
+
+- Strict contiguity: `next()`, 일치하는 이벤트가 바로 나와야 함
+- Relaxed contiguity: `followedBy()`, 일치하는 이벤트가 나올 때까지 검사
+- Non-deterministic relaxed contiguity: `followedByAny()`, followedBy에서 추가적으로 더 검사
+- `notNext()`, `notFollowedBy()`
+
+```java
+// strict contiguity
+Pattern<Event, ?> strict = start.next("middle").where(...);
+
+// relaxed contiguity
+Pattern<Event, ?> relaxed = start.followedBy("middle").where(...);
+
+// non-deterministic relaxed contiguity
+Pattern<Event, ?> nonDetermin = start.followedByAny("middle").where(...);
+
+// NOT pattern with strict contiguity
+Pattern<Event, ?> strictNot = start.notNext("not").where(...);
+
+// NOT pattern with relaxed contiguity
+Pattern<Event, ?> relaxedNot = start.notFollowedBy("not").where(...);
+```
+
+예시)
+패턴: "a b" 
+입력 이벤트 시퀀스: "a", "c", "b1", "b2"
+"a"와 "b" 사이에 아래의 각 contiguity를 넣었을 때,
+
+- Strict contiguity: `{ }` (매치 결과 없음) - "a" 뒤에 "c"가 왔기 때문에 "a"가 버려짐.
+- Relaxed contiguity: `{a b1}` - "b"가 나올 때까지 검사하므로 "c"는 무시
+- Non-deterministic relaxed contiguity: `{a b1}`, `{a b2}` - 추가적으로 더 검사
+
+패턴이 유효한 시간 지정 가능. `pattern.within()` 메서드를 이용하면 패턴이 몇 초안에 일치해야 하는지 지정
+
+```java
+next.within(Time.seconds(10));
+```
+
+**looping patterns에서의 contiguity**
+
+패턴: "a b+ c"
+입력: "a", "b1", "d1", "b2", "d2", "b3" "c"
+
+- Strict contiguity: `{a b3 c}` - "d1" 때문에 "b1"이 버려짐, "d2" 때문에 "b2"가 버려짐.
+- Relaxed contiguity: `{a b1 c}`, `{a b1 b2 c}`, `{a b1 b2 b3 c}`, `{a b2 c}`, `{a b2 b3 c}`, `{a b3 c}` - "d1", "d2"가 무시됨.
+- Non-deterministic relaxed contiguity: `{a b1 c}`, `{a b1 b2 c}`, `{a b1 b3 c}`, `{a b1 b2 b3 c}`, `{a b2 c}`, `{a b2 b3 c}`, `{a b3 c}` - {a b1 b3 c} 는 포함되지 않음.
+
+루핑 패턴(`oneOrMore()`, `times()`)에서 기본값은 *relaxed contiguity*이다. *strict contiguity*를 사용하고 싶으면 `consecutive()` 메서드를 사용하고, *non-deterministic relaxed contiguity*를 사용하고 싶으면 `allowCombinations()` 메서드를 사용하면 된다.
+
+##### Groups of patterns
+
+패턴 시퀀스를 `begin`, `followedBy`, `followedByAny`,  `next`의 조건으로 정의할 수 있다. GroupPattern을 반환하기 때문에 `oneOrMore()`, `times(#ofTimes)`, `times(#fromTimes, #toTimes)`, `optional()`, `consecutive()`, `allowCombinations()` 메서드를 적용 가능하다.
+
+```java
+Pattern<Event, ?> start = Pattern.begin(
+    Pattern.<Event>begin("start").where(...).followedBy("start_middle").where(...)
+);
+
+// strict contiguity
+Pattern<Event, ?> strict = start.next(
+    Pattern.<Event>begin("next_start").where(...).followedBy("next_middle").where(...)
+).times(3);
+
+// relaxed contiguity
+Pattern<Event, ?> relaxed = start.followedBy(
+    Pattern.<Event>begin("followedby_start").where(...).followedBy("followedby_middle").where(...)
+).oneOrMore();
+
+// non-deterministic relaxed contiguity
+Pattern<Event, ?> nonDetermin = start.followedByAny(
+    Pattern.<Event>begin("followedbyany_start").where(...).followedBy("followedbyany_middle").where(...)
+).optional();
+```
+
+##### After Match Skip Strategy
+
+패턴을 사용할 때, 같은 이벤트가 여러번 매칭될 수 있다. 이벤트가 할당되는 매칭 수를 제어하려면 `AfterMatchSkipStrategy`를 이용하면 된다.
+
+- NO_SKIP: 모든 매치가 출력
+- SKIP_PAST_LAST_EVENT: Discards every partial match that started after the match started but before it ended.
+- SKIP_TO_FIRST: Discards every partial match that started after the match started but before the first event of *PatternName*occurred.
+- SKIP_TO_LAST: Discards every partial match that started after the match started but before the last event of *PatternName*occurred.
+
+예시) 
+패턴: `b+ c`
+데이터 스트림: `b1 b2 b3 c`
+
+| Skip Strategy            | Result_____________________________________________ | Description                                                  |
+| ------------------------ | --------------------------------------------------- | ------------------------------------------------------------ |
+| **NO_SKIP**              | `b1 b2 b3 c` <br />`b2 b3 c` <br />`b3 c` <br />    | After found matching `b1 b2 b3 c`, the match process will not discard any result. |
+| **SKIP_PAST_LAST_EVENT** | `b1 b2 b3 c`                                        | After found matching `b1 b2 b3 c`, the match process will discard all started partial matches. |
+| **SKIP_TO_FIRST**[`b*`]  | `b1 b2 b3 c` <br />`b2 b3 c` <br />`b3 c`           | After found matching `b1 b2 b3 c`, the match process will try to discard all partial matches started before `b1`, but there are no such matches. Therefore nothing will be discarded. |
+| **SKIP_TO_LAST**[`b`]    | `b1 b2 b3 c`<br />`b3 c`                            | After found matching `b1 b2 b3 c`, the match process will try to discard all partial matches started before `b3`. There is one such match `b2 b3 c` |
+
+NO_SKIP과 SKIP_TO_FIRST 비교
+패턴: `(a | c) (b | c) c+.greedy d` 
+입력 시퀀스: `a b c1 c2 c3 d` 
+
+| Skip Strategy           | Result__________________________________________________________ | Description                                                  |
+| ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **NO_SKIP**             | `a b c1 c2 c3 d` <br />`b c1 c2 c3 d` <br />`c1 c2 c3 d` <br />`c2 c3 d` | After found matching `a b c1 c2 c3 d`, the match process will not discard any result. |
+| **SKIP_TO_FIRST**[`b*`] | `a b c1 c2 c3 d` <br />`c1 c2 c3 d`                          | After found matching `a b c1 c2 c3 d`, the match process will try to discard all partial matches started before `c1`. There is one such match `b c1 c2 c3 d`. |
+
+함수 사용 방법
+
+| Function                                          | Description                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------ |
+| `AfterMatchSkipStrategy.noSkip()`                 | Create a **NO_SKIP** skip strategy                           |
+| `AfterMatchSkipStrategy.skipPastLastEvent()`      | Create a **SKIP_PAST_LAST_EVENT** skip strategy              |
+| `AfterMatchSkipStrategy.skipToFirst(patternName)` | Create a **SKIP_TO_FIRST** skip strategy with the referenced pattern name *patternName* |
+| `AfterMatchSkipStrategy.skipToLast(patternName)`  | Create a **SKIP_TO_LAST** skip strategy with the referenced pattern name *patternName* |
+
+```java
+AfterMatchSkipStrategy skipStrategy = ...
+Pattern.begin("patternName", skipStrategy);
+```
 
 
 
-#### Groups of patterns
+#### Detecting Patterns
 
+패턴 시퀀스를 지정한 후, 이벤트 스트림에 적용하기 위해서는 `PatternStream`을 만들어야 한다.
+동시에 들어온 이벤트를 정렬하기 위해 `comparator`를 추가적으로 사용할 수 있다.
 
+```java
+DataStream<Event> input = ...
+Pattern<Event, ?> pattern = ...
+EventComparator<Event> comparator = ... // optional
 
-#### After Match Skip Strategy
+PatternStream<Event> patternStream = CEP.pattern(input, pattern, comparator);
+```
 
+##### Selecting from Patterns
 
+`PatternStream`을 얻으면 `select`나 `flatSelect` 메서드를 통해 이벤트 시퀀스에서 select 할 수 있다.
 
-### Detecting Patterns
+##### Handling Timed Out Partial Patterns
 
-#### Selecting from Patterns
+#### Handling Lateness in Event Time
 
-#### Handling Timed Out Partial Patterns
-
-
-
-### Handling Lateness in Event Time
-
-
-
-### Examples
+#### Examples
